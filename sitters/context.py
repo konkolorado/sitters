@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from .states import SitState
 
 if t.TYPE_CHECKING:
-    from .sitter import Sitter
+    from .sit import Sit
 
 
 __var__: ContextVar["SitContext"] = ContextVar("SitContext")
@@ -26,7 +26,7 @@ def get_this_sit() -> "SitContext":
 
 @dataclass
 class SitContext:
-    sitter: "Sitter"
+    sitter: "Sit"
     name: str
     id: uuid.UUID = field(default_factory=uuid.uuid4)
     started_at: datetime.datetime = field(default_factory=_get_tz_now)
@@ -34,7 +34,7 @@ class SitContext:
     state: SitState = SitState.PENDING
 
     @classmethod
-    def for_sitter(cls, sitter: "Sitter") -> "SitContext":
+    def for_sitter(cls, sitter: "Sit") -> "SitContext":
         return cls(sitter=sitter, name=sitter.fn.__name__)
 
     @classmethod
