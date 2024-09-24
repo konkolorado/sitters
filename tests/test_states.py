@@ -1,6 +1,8 @@
 import asyncio
 import unittest.mock
 
+import pytest
+
 from sitters import get_this_sit, sit
 from sitters.states import SitState
 
@@ -32,7 +34,9 @@ async def test_failed_sit_is_in_correct_state():
         STATE = ctx.state
 
     m = unittest.mock.AsyncMock(side_effect=Exception)
-    await sit(m, exception_hooks=[failed_callback])()
+    fn = sit(m, exception_hooks=[failed_callback])
+    with pytest.raises(Exception):
+        await fn()
 
     assert STATE is not None
     assert STATE == EXPECTED

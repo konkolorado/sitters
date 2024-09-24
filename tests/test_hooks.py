@@ -1,6 +1,8 @@
 import asyncio
 import unittest.mock
 
+import pytest
+
 from sitters import sit
 
 
@@ -13,7 +15,10 @@ async def test_all_hooks_run_on_failure():
     ]
 
     m = unittest.mock.AsyncMock(side_effect=Exception)
-    await sit(m, exception_hooks=hooks)()
+    fn = sit(m, exception_hooks=hooks)
+
+    with pytest.raises(Exception):
+        await fn()
 
     for h in hooks:
         h.assert_called_once()

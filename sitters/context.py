@@ -34,7 +34,7 @@ class SitContext:
     state: SitState = SitState.PENDING
 
     @classmethod
-    def for_sitter(cls, sitter: "Sit") -> "SitContext":
+    def for_sit(cls, sitter: "Sit") -> "SitContext":
         return cls(sitter=sitter, name=sitter.fn.__name__)
 
     @classmethod

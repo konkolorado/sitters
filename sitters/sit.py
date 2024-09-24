@@ -21,6 +21,8 @@ class Sit(t.Generic[P, R]):
         completion_hooks: list[Hooks] | None = None,
         exception_hooks: list[Hooks] | None = None,
         timeout_hooks: list[Hooks] | None = None,
+        cancellation_hooks: list[Hooks] | None = None,
+        restart_hooks: list[Hooks] | None = None,
         retry: t.Callable[[t.Callable], t.Callable] | None = None,
         cache: Cache[t.Any, R] | None = None,
         timeout: int | None = None,
@@ -34,6 +36,8 @@ class Sit(t.Generic[P, R]):
         self.completion_hooks = completion_hooks or []
         self.exception_hooks = exception_hooks or []
         self.timeout_hooks = timeout_hooks or []
+        self.cancellation_hooks = cancellation_hooks or []
+        self.restart_hooks = restart_hooks or []
 
     async def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R | None:
         return await Sitter(self, *args, **kwargs).start()
@@ -47,6 +51,8 @@ def sit(
     completion_hooks: list[Hooks] | None = None,
     exception_hooks: list[Hooks] | None = None,
     timeout_hooks: list[Hooks] | None = None,
+    cancellation_hooks: list[Hooks] | None = None,
+    restart_hooks: list[Hooks] | None = None,
     retry: t.Callable[[t.Callable], t.Callable] | None = None,
     cache: Cache | None = None,
     timeout: int | None = None,
@@ -61,6 +67,8 @@ def sit(
     completion_hooks: list[Hooks] | None = None,
     exception_hooks: list[Hooks] | None = None,
     timeout_hooks: list[Hooks] | None = None,
+    cancellation_hooks: list[Hooks] | None = None,
+    restart_hooks: list[Hooks] | None = None,
     retry: t.Callable[[t.Callable], t.Callable] | None = None,
     cache: Cache | None = None,
     timeout: int | None = None,
@@ -74,6 +82,8 @@ def sit(
     completion_hooks: list[Hooks] | None = None,
     exception_hooks: list[Hooks] | None = None,
     timeout_hooks: list[Hooks] | None = None,
+    cancellation_hooks: list[Hooks] | None = None,
+    restart_hooks: list[Hooks] | None = None,
     retry: t.Callable[[t.Callable], t.Callable] | None = None,
     cache: Cache | None = None,
     timeout: int | None = None,
@@ -87,6 +97,8 @@ def sit(
                 completion_hooks=completion_hooks,
                 exception_hooks=exception_hooks,
                 timeout_hooks=timeout_hooks,
+                cancellation_hooks=cancellation_hooks,
+                restart_hooks=restart_hooks,
                 retry=retry,
                 cache=cache,
                 timeout=timeout,
@@ -101,6 +113,8 @@ def sit(
                 completion_hooks=completion_hooks,
                 exception_hooks=exception_hooks,
                 timeout_hooks=timeout_hooks,
+                cancellation_hooks=cancellation_hooks,
+                restart_hooks=restart_hooks,
                 retry=retry,
                 cache=cache,
                 timeout=timeout,
