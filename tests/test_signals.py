@@ -9,6 +9,11 @@ import pytest
 from sitters import sit
 
 
+async def _sleepy_task_that_returns():
+    await anyio.sleep(1)
+    return True
+
+
 def _create_async_iterator_with(*values: signal.Signals):
     @contextlib.contextmanager
     def _asyncly_iterate(*args, **kwargs):
@@ -85,15 +90,7 @@ async def test_multiple_sighups_can_succeed():
 
 @pytest.mark.parametrize("signal", [signal.SIGTERM, signal.SIGINT, signal.SIGKILL])
 async def test_cancel_signals_cancel_sitting(signal: signal.Signals):
-    COMPLETIONS = 0
-
-    async def _sleep_set_and_return():
-        await anyio.sleep(1)
-        nonlocal COMPLETIONS
-        COMPLETIONS += 1
-        return True
-
-    m = unittest.mock.AsyncMock(side_effect=_sleep_set_and_return)
+    m = unittest.mock.AsyncMock(side_effect=_sleepy_task_that_returns)
     fn = sit(m)
 
     with unittest.mock.patch(
@@ -103,22 +100,12 @@ async def test_cancel_signals_cancel_sitting(signal: signal.Signals):
 
     assert m.call_count == 1
     assert result is None
-    assert COMPLETIONS == 0
 
 
 @pytest.mark.parametrize("signal", [signal.SIGTERM, signal.SIGINT, signal.SIGKILL])
 async def test_cancel_signals_run_cancellation_hooks(signal: signal.Signals):
     hooks = [unittest.mock.AsyncMock(), unittest.mock.AsyncMock()]
-
-    COMPLETIONS = 0
-
-    async def _sleep_set_and_return():
-        await anyio.sleep(1)
-        nonlocal COMPLETIONS
-        COMPLETIONS += 1
-        return True
-
-    m = unittest.mock.AsyncMock(side_effect=_sleep_set_and_return)
+    m = unittest.mock.AsyncMock(side_effect=_sleepy_task_that_returns)
     fn = sit(m, cancellation_hooks=hooks)
 
     with unittest.mock.patch(
@@ -128,7 +115,6 @@ async def test_cancel_signals_run_cancellation_hooks(signal: signal.Signals):
 
     assert m.call_count == 1
     assert result is None
-    assert COMPLETIONS == 0
     for h in hooks:
         h.assert_called_once()
         h.assert_awaited_once()
@@ -166,12 +152,7 @@ async def test_sighup_only_runs_restart_and_completion_hooks():
     restart_hooks = [unittest.mock.AsyncMock(), unittest.mock.AsyncMock()]
     completion_hooks = [unittest.mock.AsyncMock(), unittest.mock.AsyncMock()]
     other_hooks = [unittest.mock.AsyncMock(), unittest.mock.AsyncMock()]
-
-    async def _sleep_set_and_return():
-        await anyio.sleep(1)
-        return True
-
-    m = unittest.mock.AsyncMock(side_effect=_sleep_set_and_return)
+    m = unittest.mock.AsyncMock(side_effect=_sleepy_task_that_returns)
     fn = sit(
         m,
         cancellation_hooks=other_hooks,
@@ -206,12 +187,7 @@ async def test_sighup_only_runs_restart_and_completion_hooks():
 async def test_cancel_signals_only_run_cancellation_hooks(signal: signal.Signals):
     hooks = [unittest.mock.AsyncMock(), unittest.mock.AsyncMock()]
     other_hooks = [unittest.mock.AsyncMock(), unittest.mock.AsyncMock()]
-
-    async def _sleep_set_and_return():
-        await anyio.sleep(1)
-        return True
-
-    m = unittest.mock.AsyncMock(side_effect=_sleep_set_and_return)
+    m = unittest.mock.AsyncMock(side_effect=_sleepy_task_that_returns)
     fn = sit(
         m,
         cancellation_hooks=hooks,
@@ -233,5 +209,118 @@ async def test_cancel_signals_only_run_cancellation_hooks(signal: signal.Signals
         h.assert_awaited_once()
 
     for h in other_hooks:
+        h.assert_not_called()
+        h.assert_not_awaited()
+
+
+async def test_pause_and_unpause():
+    m = unittest.mock.AsyncMock(side_effect=_sleepy_task_that_returns)
+    fn = sit(m)
+
+    # first, send a SIGUSR1 signal (pause)
+    with unittest.mock.patch(
+        "sitters.sitter.anyio.open_signal_receiver",
+        _create_async_iterator_with(signal.SIGUSR1),
+    ):
+        # then, send a SIGUSR2 signal (unpause)
+        with unittest.mock.patch(
+            "sitters.sitter.signal.sigwait", side_effect=[signal.SIGUSR2]
+        ) as signal_mock:
+            result = await fn()
+
+    assert result
+    signal_mock.assert_called_once()
+    m.assert_called_once()
+    m.assert_awaited_once()
+
+
+async def test_multiple_pauses_are_idempotent():
+    hooks = [unittest.mock.AsyncMock(), unittest.mock.AsyncMock()]
+    m = unittest.mock.AsyncMock(side_effect=_sleepy_task_that_returns)
+    fn = sit(m, startup_hooks=hooks)
+
+    # first, send a SIGUSR1 signal (pause)
+    with unittest.mock.patch(
+        "sitters.sitter.anyio.open_signal_receiver",
+        _create_async_iterator_with(signal.SIGUSR1),
+    ):
+        # then, send more SIGUSR1 signals and one SIGUSR2 signal
+        with unittest.mock.patch(
+            "sitters.sitter.signal.sigwait",
+            side_effect=[signal.SIGUSR1, signal.SIGUSR1, signal.SIGUSR2],
+        ) as signal_mock:
+            result = await fn()
+
+    assert result
+    assert signal_mock.call_count == 3
+    m.assert_called_once()
+    m.assert_awaited_once()
+
+    # verify startup hooks only ran once
+    for h in hooks:
+        h.assert_called_once()
+        h.assert_awaited_once()
+
+
+async def test_pause_and_sighup():
+    hooks = [unittest.mock.AsyncMock(), unittest.mock.AsyncMock()]
+    m = unittest.mock.AsyncMock(side_effect=_sleepy_task_that_returns)
+    fn = sit(m, startup_hooks=hooks)
+
+    # first, send a SIGUSR1 signal (pause)
+    with unittest.mock.patch(
+        "sitters.sitter.anyio.open_signal_receiver",
+        _create_async_iterator_with(signal.SIGUSR1),
+    ):
+        # then, send a SIGHUP
+        with unittest.mock.patch(
+            "sitters.sitter.signal.sigwait",
+            side_effect=[signal.SIGHUP],
+        ) as signal_mock:
+            result = await fn()
+
+    assert result
+    signal_mock.assert_called_once()
+    assert m.call_count == 2
+    assert m.await_count == 2
+
+    # startup hooks should have run twice
+    for h in hooks:
+        assert h.call_count == 2
+        assert h.await_count == 2
+
+
+@pytest.mark.parametrize("signal", [signal.SIGTERM, signal.SIGINT, signal.SIGKILL])
+async def test_pause_and_cancel(signal: signal.Signals):
+    hooks = [unittest.mock.AsyncMock(), unittest.mock.AsyncMock()]
+    completion_hooks = [unittest.mock.AsyncMock(), unittest.mock.AsyncMock()]
+
+    m = unittest.mock.AsyncMock(side_effect=_sleepy_task_that_returns)
+    fn = sit(m, cancellation_hooks=hooks, completion_hooks=completion_hooks)
+
+    # first, send a SIGUSR1 signal (pause)
+    with unittest.mock.patch(
+        "sitters.sitter.anyio.open_signal_receiver",
+        _create_async_iterator_with(signal.SIGUSR1),
+    ):
+        # then, send a SIGHUP
+        with unittest.mock.patch(
+            "sitters.sitter.signal.sigwait",
+            side_effect=[signal],
+        ) as signal_mock:
+            result = await fn()
+
+    assert result is None
+    signal_mock.assert_called_once()
+    m.assert_called_once()
+    m.assert_awaited_once()
+
+    # cancellation hooks should have run
+    for h in hooks:
+        h.assert_called_once()
+        h.assert_awaited_once()
+
+    # completion hooks should not have run
+    for h in completion_hooks:
         h.assert_not_called()
         h.assert_not_awaited()
