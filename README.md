@@ -181,7 +181,7 @@ for _ in range(5):
 
 <summary>Support for pausing, restarting, resuming, and cancelling your code</summary>
 
-### Sitters listen to and respond to signals send to your process
+### Sitters listen to and respond to signals sent to your process
 
 Note that Windows does not natively support signals and this functionality is
 likely not to work.
