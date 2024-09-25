@@ -13,6 +13,45 @@ Babysit your async Python functions with `sitters` that can provide:
 - cancellation hooks
 - restart hooks
 
+```python
+import anyio
+from cachetools import LRUCache
+from tenacity import retry, stop_after_attempt, stop_after_delay
+
+from sitters import sit
+
+
+async def done_callback():
+    print("In done callback!!")
+
+
+async def start_callback():
+    print("In start callback!!")
+
+
+async def timeout_callback():
+    print("In timeout callback!!")
+
+
+@sit(
+    retry=retry(stop=(stop_after_delay(10) | stop_after_attempt(5))),
+    cache=LRUCache(maxsize=640 * 1024),
+    completion_hooks=[done_callback],
+    startup_hooks=[start_callback],
+    timeout_hooks=[timeout_callback],
+)
+async def main(num: int):
+    for i in range(num):
+        await anyio.sleep(1)
+        print(f"Slept {i}")
+    return num
+
+
+if __name__ == "__main__":
+    result = anyio.run(main, 20)
+    print(f"Successully slept for {result}s")
+```
+
 <details>
 
 <summary>Run arbitrary async functions in response to your code's state</summary>
