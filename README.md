@@ -97,8 +97,8 @@ The supported lifecycle events for running hooks are:
 
 <summary>Control how long your code runs with timeouts</summary>
 
-Note that tasks that timeout trigger it's timeout hooks to be run and the task
-itself will return `None`.
+Note that tasks that timeout will trigger the `sitter`'s timeout hooks to be run
+and the task itself will return `None`.
 
 ```python
 import asyncio
