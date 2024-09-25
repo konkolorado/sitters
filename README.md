@@ -1,6 +1,6 @@
 # Sitters
 
-Babysit your async Python functions with `sitters` that can provide:
+Babysit your __async__ Python functions with `sitters` that can provide:
 
 - timeouts
 - retries
@@ -276,5 +276,96 @@ kill -15 <PID>
 ```
 
 Note that sending a kill signal will trigger the `sitter`'s cancellation hook(s).
+
+</details>
+
+<details>
+
+<summary>Access the sitter context</summary>
+
+Every time that a "sat" function is called, it automatically gets its own
+`SitContext` that contains information such as an invocation UUID, start time,
+and status. 
+
+
+```python
+import asyncio
+
+from sitters import sit, get_this_sit
+
+
+@sit
+async def examine_context():
+    print(f"{get_this_sit()}")
+
+for _ in range(5):
+    asyncio.run(examine_context())
+```
+
+
+Note that the `SitContext` is only available if it's being called within a
+`sitter` (even if the function calling it is not diretly being "sat"):
+
+```python
+import asyncio
+
+from sitters import sit, get_this_sit
+
+def some_sync_function():
+    print(f"{get_this_sit()}")
+
+@sit
+async def examine_context():
+    some_sync_function()
+
+
+asyncio.run(examine_context())
+```
+
+Otherwise, trying to retrieve the `SitContext` will result in a `RuntimeError`:
+```python
+from sitters import sit, get_this_sit
+
+print(f"{get_this_sit()}")
+
+# RuntimeError: Sit context is only available from within a sit
+```
+
+Crucially, this `SitContext` is available within the lifecycle hooks, making it
+possible to inspect the `sitter`'s state and perform actions on a `sit`'s
+results:
+
+```python
+import asyncio
+
+from sitters import get_this_sit, sit
+
+async def store_in_db():
+    ctx = get_this_sit()
+    db = ...
+    db.add(ctx.name, ctx.id, ctx.state, ctx.started_at, ctx.stopped_at)
+
+
+async def notify_on_timeouts():
+    ctx = get_this_sit()
+
+    report = f"""
+    Report for Sitter '{ctx.name}' with ID {ctx.id}
+
+    In state {ctx.state}
+    Took {ctx.stopped_at - ctx.started_at}
+    """
+    print(report)
+
+
+@sit(timeout_hooks=[notify_on_timeouts, store_in_db], timeout=2)
+async def sleeper(sleep_s: int):
+    for i in range(sleep_s):
+        await asyncio.sleep(1)
+        print(f"We've slept {i} seconds")
+
+
+asyncio.run(sleeper(10))
+```
 
 </details>
