@@ -1,5 +1,4 @@
 import functools
-import os
 import signal
 import typing as t
 from functools import cached_property
@@ -33,7 +32,6 @@ class Sitter(t.Generic[P, R]):
 
         self.send_stream, self.receive_stream = anyio.create_memory_object_stream(1)
         self.call_scope: anyio.CancelScope
-        self.timeout_scope: anyio.CancelScope
 
     def _prepare_call(self):
         fn = functools.partial(self.sit.fn, *self.args, **self.kwargs)
@@ -51,7 +49,6 @@ class Sitter(t.Generic[P, R]):
                 tg.start_soon(self._send_from_cache_or_run)
 
         return await self._get_result()
-        return None
 
     async def _watch_for_result(self, tg: anyio.abc.TaskGroup):
         await self.result.wait()
@@ -60,6 +57,33 @@ class Sitter(t.Generic[P, R]):
     async def _get_result(self):
         return await self.receive_stream.receive()
 
+    def _pause(self, tg: anyio.abc.TaskGroup):
+        while True:
+            signum = signal.sigwait(
+                [
+                    signal.SIGTERM,
+                    signal.SIGINT,
+                    signal.SIGKILL,
+                    signal.SIGHUP,
+                    signal.SIGUSR1,
+                    signal.SIGUSR2,
+                ]
+            )
+            match signum:
+                case signal.SIGTERM | signal.SIGINT | signal.SIGKILL:
+                    tg.cancel_scope.cancel()
+                    break
+                case signal.SIGHUP:
+                    self.call_scope.cancel()
+                    break
+                case signal.SIGUSR1:
+                    # this needs to be caught here, otherwise it will be
+                    # processed if we are unpaused later
+                    continue
+                case signal.SIGUSR2:
+                    # Interpret this as unpause
+                    break
+
     async def _run_call(self) -> R | None:
         call = self._prepare_call()
 
@@ -67,7 +91,6 @@ class Sitter(t.Generic[P, R]):
             with anyio.move_on_after(self.sit.timeout) as self.timeout_scope:
                 await self._handle_startup()
                 try:
-                    print("This is my PID", os.getpid())
                     result = await call()
                 except anyio.get_cancelled_exc_class():
                     if self.timeout_scope.cancel_called:
@@ -91,24 +114,22 @@ class Sitter(t.Generic[P, R]):
 
     async def _watch_for_signals(self, tg: anyio.abc.TaskGroup):
         with anyio.open_signal_receiver(
-            signal.SIGTERM, signal.SIGHUP, signal.SIGINT
+            signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGUSR1, signal.SIGUSR2
         ) as signals:
             async for signum in signals:
                 match signum:
                     case signal.SIGTERM | signal.SIGINT | signal.SIGKILL:
-                        print("kill 15 / CTRL-C recvd")
                         # CTRL-C or kill -15 received
                         tg.cancel_scope.cancel()
                     case signal.SIGHUP:
-                        print("kill -1 recvd")
                         # kill -1 received
                         self.call_scope.cancel()
                     case signal.SIGUSR1:
-                        # pause the sit???
-                        ...
+                        # kill --SIGUSR1 received
+                        self._pause(tg)
                     case signal.SIGUSR2:
-                        # resume the sit???
-                        ...
+                        # we need this to prevent a kill
+                        pass
 
     async def _handle_startup(self):
         await self._run_hooks([get_this_sit().set_starting] + self.sit.startup_hooks)

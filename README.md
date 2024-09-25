@@ -1,2 +1,2 @@
-- explore adding pauses
+- Add pauses tests
 
