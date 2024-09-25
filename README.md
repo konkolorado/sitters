@@ -36,7 +36,7 @@ async def sleeper(sleep_s: int):
 asyncio.run(sleeper(4))
 ```
 
-### Running hooks when your code completes
+### Running hook(s) when your code completes
 
 ```python
 import asyncio
@@ -55,7 +55,7 @@ async def sleeper(sleep_s: int):
 asyncio.run(sleeper(4))
 ```
 
-### Run hooks throughout your code's execution
+### Run hook(s) throughout your code's execution
 
 ```python
 import asyncio
@@ -97,7 +97,7 @@ The supported lifecycle events for running hooks are:
 
 <summary>Control how long your code runs with timeouts</summary>
 
-Note that tasks that timeout will trigger the `sitter`'s timeout hooks to be run
+Note that tasks that timeout will trigger the `sitter`'s timeout hook(s) to run 
 and the task itself will return `None`.
 
 ```python
@@ -226,7 +226,7 @@ If you need to restart your code, send the `sitter` a `SIGHUP`:
 kill -1 <PID>
 ```
 
-Note that sending a `SIGHUP` will cause trigger the `sitter`'s restart hooks.
+Note that sending a `SIGHUP` will cause trigger the `sitter`'s restart hook(s).
 
 ### Stop or cancel your code
 
@@ -236,6 +236,6 @@ If you need to stop the `sitter`, you can `CTRL-C` it or send it a `SIGTERM`:
 kill -15 <PID>
 ```
 
-Note that sending a kill signal will trigger the `sitter`'s cancellation hooks.
+Note that sending a kill signal will trigger the `sitter`'s cancellation hook(s).
 
 </details>
