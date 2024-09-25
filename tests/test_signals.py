@@ -27,7 +27,7 @@ class AsyncIterator:
     async def __anext__(self):
         # simulate a delay in generated signals so that the main tasks have an
         # opportunity to run
-        await anyio.sleep(0.5)
+        await anyio.sleep(0.05)
         try:
             return next(self.iter)
         except StopIteration:
@@ -63,7 +63,7 @@ async def test_multiple_sighups_can_succeed():
     COMPLETIONS = 0
 
     async def _sleep_set_and_return():
-        await anyio.sleep(2)
+        await anyio.sleep(1)
         nonlocal COMPLETIONS
         COMPLETIONS += 1
         return RESULT

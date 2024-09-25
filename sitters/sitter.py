@@ -27,11 +27,8 @@ class Sitter(t.Generic[P, R]):
         self.args = args
         self.kwargs = kwargs
 
-        self.started = anyio.Event()
+        self.result = anyio.Event()
         self.completed = anyio.Event()
-        self.failed = anyio.Event()
-        self.timedout = anyio.Event()
-        self.cancelled = anyio.Event()
         self.restarted = anyio.Event()
 
         self.send_stream, self.receive_stream = anyio.create_memory_object_stream(1)
@@ -48,18 +45,17 @@ class Sitter(t.Generic[P, R]):
     async def start(self) -> R | None:
         with SitContext.for_sit(self.sit):
             async with anyio.create_task_group() as tg:
-                tg.start_soon(self._watch_for_started)
-                tg.start_soon(self._watch_for_completion, tg)
-                tg.start_soon(self._watch_for_exception, tg)
-                tg.start_soon(self._watch_for_timeout, tg)
                 tg.start_soon(self._watch_for_restarts, tg)
-                tg.start_soon(self._watch_for_cancellation, tg)
                 tg.start_soon(self._watch_for_signals, tg)
+                tg.start_soon(self._watch_for_result, tg)
                 tg.start_soon(self._send_from_cache_or_run)
 
-        if self.completed.is_set():
-            return await self._get_result()
+        return await self._get_result()
         return None
+
+    async def _watch_for_result(self, tg: anyio.abc.TaskGroup):
+        await self.result.wait()
+        tg.cancel_scope.cancel()
 
     async def _get_result(self):
         return await self.receive_stream.receive()
@@ -69,30 +65,28 @@ class Sitter(t.Generic[P, R]):
 
         with anyio.CancelScope() as self.call_scope:
             with anyio.move_on_after(self.sit.timeout) as self.timeout_scope:
-                self.started.set()
-                await anyio.sleep(0.05)  # give hooks a chance to run
+                await self._handle_startup()
                 try:
                     print("This is my PID", os.getpid())
                     result = await call()
                 except anyio.get_cancelled_exc_class():
                     if self.timeout_scope.cancel_called:
-                        print("set timeout")
-                        self.timedout.set()
-                    # elif self.restarted.is_set():
-                    #    print("something restarted us")
+                        with anyio.CancelScope(shield=True):
+                            await self._handle_timeout()
                     elif self.call_scope.cancel_called:
-                        print("something restarted us")
-                        self.restarted.set()
+                        with anyio.CancelScope(shield=True):
+                            await self._handle_restarts()
                     else:
-                        print("something upstairs cancelled us")
-                        # self.cancelled.set()
-                    # print(f"{self.call_scope.cancel_called=}")
+                        with anyio.CancelScope(shield=True):
+                            await self._handle_cancellation()
                     raise
                 except Exception:
-                    self.failed.set()
+                    with anyio.CancelScope(shield=True):
+                        await self._handle_exception()
                     raise
                 else:
-                    self.completed.set()
+                    with anyio.CancelScope(shield=True):
+                        await self._handle_completion()
                     return result
 
     async def _watch_for_signals(self, tg: anyio.abc.TaskGroup):
@@ -104,15 +98,11 @@ class Sitter(t.Generic[P, R]):
                     case signal.SIGTERM | signal.SIGINT | signal.SIGKILL:
                         print("kill 15 / CTRL-C recvd")
                         # CTRL-C or kill -15 received
-                        # tg.cancel_scope.cancel()
-                        self.cancelled.set()
+                        tg.cancel_scope.cancel()
                     case signal.SIGHUP:
                         print("kill -1 recvd")
                         # kill -1 received
-                        # self.restarted.set()
                         self.call_scope.cancel()
-                        # self.call_scope = anyio.CancelScope()
-                        tg.start_soon(self._send_from_cache_or_run)
                     case signal.SIGUSR1:
                         # pause the sit???
                         ...
@@ -120,41 +110,33 @@ class Sitter(t.Generic[P, R]):
                         # resume the sit???
                         ...
 
-    async def _watch_for_started(self):
-        await self.started.wait()
+    async def _handle_startup(self):
         await self._run_hooks([get_this_sit().set_starting] + self.sit.startup_hooks)
 
-    async def _watch_for_completion(self, tg: anyio.abc.TaskGroup):
-        await self.completed.wait()
+    async def _handle_completion(self):
         await self._run_hooks(
             [get_this_sit().set_completed] + self.sit.completion_hooks
         )
-        tg.cancel_scope.cancel()
+        self.completed.set()
 
-    async def _watch_for_exception(self, tg: anyio.abc.TaskGroup):
-        await self.failed.wait()
+    async def _handle_exception(self):
         await self._run_hooks([get_this_sit().set_failed] + self.sit.exception_hooks)
-        tg.cancel_scope.cancel()
 
-    async def _watch_for_timeout(self, tg: anyio.abc.TaskGroup):
-        await self.timedout.wait()
+    async def _handle_timeout(self):
         await self._run_hooks([get_this_sit().set_timedout] + self.sit.timeout_hooks)
-        tg.cancel_scope.cancel()
+
+    async def _handle_cancellation(self):
+        await self._run_hooks(self.sit.cancellation_hooks)
 
     async def _watch_for_restarts(self, tg: anyio.abc.TaskGroup):
         await self.restarted.wait()
-        await self._run_hooks(self.sit.restart_hooks)
-        # tg.cancel_scope.cancel()
-
-        # self.call_scope.cancel()
-        # self.call_scope = anyio.CancelScope()
         self.restarted = anyio.Event()
-        # tg.start_soon(self._send_from_cache_or_run)
+        tg.start_soon(self._send_from_cache_or_run)
+        tg.start_soon(self._watch_for_restarts, tg)
 
-    async def _watch_for_cancellation(self, tg: anyio.abc.TaskGroup):
-        await self.cancelled.wait()
-        await self._run_hooks(self.sit.cancellation_hooks)
-        tg.cancel_scope.cancel()
+    async def _handle_restarts(self):
+        await self._run_hooks(self.sit.restart_hooks)
+        self.restarted.set()
 
     async def _run_hooks(self, hooks: list[Hooks], *args) -> None:
         if len(hooks) == 0:
@@ -164,32 +146,26 @@ class Sitter(t.Generic[P, R]):
             [tg.start_soon(h, *args) for h in hooks]
 
     async def _send_from_cache_or_run(self):
-        from_cache = False
-
         if self.sit.cache and self._cache_key in self.sit.cache:
             result = self.sit.cache.get(self._cache_key)
-            from_cache = True
         else:
-            result = await self._run_call()
+            try:
+                result = await self._run_call()
+            except anyio.get_cancelled_exc_class():
+                # this task was cancelled, so use a None result
+                result = None
 
-        if (
-            self.sit.cache is not None
-            and not self.timedout.is_set()
-            and not self.failed.is_set()
-            and not self.cancelled.is_set()
-            and not self.restarted.is_set()
-        ):
+        if self.sit.cache is not None and self.completed.is_set():
+            # only cache the result if the task completed successfully
             self.sit.cache[self._cache_key] = t.cast(R, result)
 
-        # only send a result if a terminal event happened
-        if (
-            from_cache
-            or self.completed.is_set()
-            or self.timedout.is_set()
-            or self.failed.is_set()
-        ):
-            self.completed.set()
+        if self.restarted.is_set():
+            # this task is being restarted, so don't send any results
+            return
+
+        with anyio.CancelScope(shield=True):
             await self.send_stream.send(result)
+            self.result.set()
 
     @cached_property
     def _cache_key(self):

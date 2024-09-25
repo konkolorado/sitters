@@ -54,7 +54,7 @@ async def test_timedout_sit_is_in_correct_state():
 
     @sit(timeout_hooks=[timedout_callback], timeout=1)
     async def f():
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
 
     await f()
 

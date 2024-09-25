@@ -68,7 +68,7 @@ async def test_all_hooks_run_on_timeouts():
 
     @sit(timeout=1, timeout_hooks=hooks)
     async def f():
-        await asyncio.sleep(5)
+        await asyncio.sleep(1)
 
         nonlocal FULLY_RAN
         FULLY_RAN = True

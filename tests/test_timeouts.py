@@ -5,8 +5,8 @@ from sitters import sit
 
 
 async def test_function_with_timeout_actually_timesout():
-    TIMEOUT = 2
-    SLEEP = 5
+    TIMEOUT = 1
+    SLEEP = 1
     FULLY_RAN = False
 
     @sit(timeout=TIMEOUT)
@@ -42,7 +42,7 @@ async def test_function_with_timeout_that_completes_on_time_succeeds():
 
 async def test_timedout_function_calls_timeout_hooks():
     TIMEOUT = 1
-    SLEEP = 5
+    SLEEP = 1
     FULLY_RAN = False
 
     timeout_hook = unittest.mock.AsyncMock()
@@ -87,7 +87,7 @@ async def test_non_timedout_function_does_not_call_timeout_hooks():
 
 async def test_timedout_function_can_call_many_timeout_hooks():
     TIMEOUT = 1
-    SLEEP = 5
+    SLEEP = 1
     FULLY_RAN = False
 
     timeout_hooks = [
