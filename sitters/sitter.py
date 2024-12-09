@@ -113,9 +113,17 @@ class Sitter(t.Generic[P, R]):
                     return result
 
     async def _watch_for_signals(self, tg: anyio.abc.TaskGroup):
-        with anyio.open_signal_receiver(
-            signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGUSR1, signal.SIGUSR2
-        ) as signals:
+        handle_signals = [
+            signal.SIGTERM,
+            signal.SIGINT,
+            signal.SIGHUP,
+            signal.SIGUSR1,
+            signal.SIGUSR2,
+        ]
+        if signal.getsignal(handle_signals[0]) != signal.SIG_DFL:
+            return
+
+        with anyio.open_signal_receiver(*handle_signals) as signals:
             async for signum in signals:
                 match signum:
                     case signal.SIGTERM | signal.SIGINT | signal.SIGKILL:
